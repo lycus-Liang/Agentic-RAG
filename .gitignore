@@ -1,0 +1,25 @@
+# 1. Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# 2. 敏感环境变量与配置文件
+.env
+# 注意：你应该传一个 config.example.yaml 上去，而不是填满真实 Key 的 config.yaml
+
+# 3. 庞大的数据与模型文件夹
+data/
+logs/
+*.log
+hf_cache/
+modelscope/
+*.gguf
+
+# 4. 向量数据库缓存 (如果 Qdrant 数据存在本地)
+qdrant_storage/
+
+# 5. OS 自动生成文件
+.DS_Store

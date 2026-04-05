@@ -1,0 +1,37 @@
+# 指定 CUDA 11.8 源
+--extra-index-url https://download.pytorch.org/whl/cu118
+
+# 基础工具
+pymupdf>=1.24.0
+Pillow>=10.0.0
+imagehash>=4.3.1
+requests
+
+# PyTorch 核心
+torch==2.4.1
+torchvision==0.19.1
+
+# 🌟 视觉机床依赖（严格锁死黄金版本）
+transformers==4.46.1
+colpali-engine==0.3.4
+accelerate>=0.30.0
+sentencepiece>=0.2.0
+protobuf>=3.20.0
+
+# 🌟 文本机床依赖（必须从 GitHub master 分支安装修复版）
+git+https://github.com/FlagOpen/FlagEmbedding.git
+
+# Qwen2-VL 专用工具库
+qwen-vl-utils
+
+# Streamlit WebUI 核心
+streamlit>=1.32.0
+
+# qdrant 向量库
+qdrant-client
+
+# LLM API
+openai
+
+# agent 核心库
+langgraph langchain-core
