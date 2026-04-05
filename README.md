@@ -34,7 +34,7 @@ cd scripts/
 ### 3. 本地私有化大模型服务 (vLLM) - [可选]
 *注：如果你配置了云端 API（如 OpenAI、通义千问等），无需启动此项。如果你希望零成本使用本地显卡运行开源大模型（如 Qwen/Qwen3-8B），请先启动此服务。*
 ```bash
-./start_local_llm.sh          # 在后台启动 vLLM 大模型 API 服务 (默认端口 8000)
+./start_local_llm.sh          # 在后台启动 vLLM 大模型 API 服务 (默认端口 8080)
 ./stop_local_llm.sh           # 安全关闭大模型进程，释放珍贵的 GPU 显存
 
 ---
