@@ -1,10 +1,20 @@
 #!/bin/bash
 
+# 🌟 核心防雷：强制所有 HuggingFace 请求走国内镜像站！
+export HF_ENDPOINT=https://hf-mirror.com
+
 # 定义模型名称和端口 (如果以后换模型，只需要改这里)
 MODEL_NAME="Qwen/Qwen3-8B"
-PORT=8080
+PORT=6666
 LOG_DIR="../log"
 LOG_FILE="$LOG_DIR/vllm_server.log"
+
+echo ""
+echo "==================================================="
+echo "🔧 激活 conda 虚拟环境：vllm"
+echo "==================================================="
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate vllm
 
 echo "==========================================="
 echo "  🧠 准备启动本地大模型 (vLLM) 后台服务"
@@ -28,6 +38,8 @@ nohup python -m vllm.entrypoints.openai.api_server \
     --served-model-name "$MODEL_NAME" \
     --port $PORT \
     --trust-remote-code \
+    --gpu-memory-utilization 0.5 \
+    --max-model-len 16384 \
     > "$LOG_FILE" 2>&1 &
 
 # 获取后台进程的 PID

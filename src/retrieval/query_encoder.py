@@ -110,7 +110,8 @@ class QueryEncoder:
         # ==========================================
         # 2. BGE-M3 提取 Dense 与 Sparse
         # ==========================================
-        bge_out = self.bge_model.encode([search_query_for_text], return_dense=True, return_sparse=True)
+        clean_query = str(search_query_for_text).encode('utf-8', 'ignore').decode('utf-8')
+        bge_out = self.bge_model.encode([clean_query], return_dense=True, return_sparse=True)
         dense_vec = bge_out['dense_vecs'][0].tolist()
         
         lexical_weights = bge_out['lexical_weights'][0]

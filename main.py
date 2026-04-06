@@ -17,13 +17,20 @@ from src.ingestion.splitter import split_and_render_pdf_parallel
 from src.ingestion.vision_worker import VisionWorker
 from src.ingestion.text_worker import TextWorker
 from src.ingestion.proxy_worker import ProxyWorker
-from src.ingestion.json_parser import parse_json_corpus
+from src.ingestion.json_parser import parse_json_corpus, parse_alpaca_jsonl
 from src.storage.qdrant_client import QdrantManager
 from src.storage.point_builder import PointBuilder
 
 from src.utils.logger import logger
 from src.utils.cache import run_with_cache
 
+PARSER_REGISTRY = {
+    "json": parse_json_corpus,
+    "jsonl": parse_alpaca_jsonl,
+    # 未来可以扩展：
+    # "csv": parse_csv_to_text,
+    # "txt": parse_plain_text,
+}
 
 def get_config() -> dict:
     """加载全局配置"""
@@ -33,23 +40,25 @@ def get_config() -> dict:
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
-def build_json_pipeline(json_path: str, workers: dict, db_manager: QdrantManager, config: dict):
+def build_text_pipeline(file_path: str, file_type: str, workers: dict, db_manager: QdrantManager, config: dict):
     """
     纯文本 JSON 专属建库流水线
     """
-    file_name = os.path.basename(json_path)
-    print(f"\n🚀 [阶段一] 读取并结构化重组 JSON: {file_name}...")
+    file_name = os.path.basename(file_path)
+    print(f"\n🚀 [阶段一] 根据 {file_type} 策略读取并解析文档: {file_name}...")
     
+    # 🌟 动态调用对应的解析器
+    parser_func = PARSER_REGISTRY.get(file_type)
+    if not parser_func:
+        print(f"❌ 不支持的文件类型: {file_type}，请在 PARSER_REGISTRY 中注册！")
+        return
+
     try:
-        # 🌟 调用我们刚刚写好的高阶解析器
-        markdown_texts = parse_json_corpus(json_path)
+        markdown_texts = parser_func(file_path)
     except Exception as e:
         print(f"❌ 解析失败，跳过建库。原因: {e}")
         return
 
-    if not markdown_texts:
-        print("⚠️ 未提取到任何有效语料，建库终止。")
-        return
 
     text_worker = workers["text"]
     collection_name = config.get("offline", {}).get("database", {}).get("collection_name", "omni_rag_docs")
@@ -86,7 +95,7 @@ def build_json_pipeline(json_path: str, workers: dict, db_manager: QdrantManager
     db_manager.upsert_points_batch(collection_name, final_points, batch_size=batch_size)
     print(f"🎉 《{file_name}》 纯文本极速建库完毕！")
 
-def build_json_directory(dir_path: str, clear_db: bool = False):
+def build_text_directory(dir_path: str, file_type: str, clear_db: bool = False):
     """
     批量处理文件夹下的所有 JSON 文件
     """
@@ -114,7 +123,7 @@ def build_json_directory(dir_path: str, clear_db: bool = False):
     
     for idx, json_path in enumerate(json_files, 1):
         print(f"\n🔄 处理 {idx}/{len(json_files)}: {os.path.basename(json_path)}")
-        build_json_pipeline(json_path, workers, db_manager, config)
+        build_text_pipeline(json_path, file_type, workers, db_manager, config)
         
     print("\n🎉 JSON 批量建库作战全部结束！")
 
@@ -328,7 +337,7 @@ if __name__ == "__main__":
     parser.add_argument("--file", type=str, required=False, help="要处理的单个 PDF 文件路径")
     parser.add_argument("--dir", type=str, required=False, help="要批量处理的 PDF 文件夹路径")
     parser.add_argument("--clear", action="store_true", help="建库前是否清空旧的 Qdrant 集合")
-    parser.add_argument("--type", choices=["pdf", "json"], default="pdf", help="指定建库的数据源类型")
+    parser.add_argument("--type", choices=["pdf", "json", "jsonl"], default="pdf", help="指定建库的数据源类型")
 
     # 针对 Chat (对话) 的指令
     parser.add_argument("--text-only", action="store_true", help="对话时强制关闭视觉检索，仅使用文本双路召回")
@@ -355,7 +364,7 @@ if __name__ == "__main__":
                     config = get_config()
                     collection_name = config.get("offline", {}).get("database", {}).get("collection_name", "omni_rag_docs")
                     # 清理逻辑
-                    if clear_db:
+                    if args.clear:
                         print(f"💣 警告：正在清空原有的集合 [{collection_name}] ...")
                         db_manager.client.delete_collection(collection_name)
                         print("✅ 清理完毕！")
@@ -367,10 +376,10 @@ if __name__ == "__main__":
             else:
                 print("❌ 命令错误！请提供正确的参数：\n批量建库: python main.py build --dir <文件夹路径>\n单文件建库: python main.py build --file <文件路径>")
 
-        elif args.type == "json":
+        elif args.type in PARSER_REGISTRY:
             if args.dir:
                 if os.path.isdir(args.dir):
-                    build_json_directory(args.dir, args.clear)
+                    build_text_directory(args.dir, args.clear)
                 else:
                     print(f"❌ 找不到文件夹: {args.dir}，请检查路径是否正确！")
                 
@@ -383,12 +392,12 @@ if __name__ == "__main__":
                     config = get_config()
                     collection_name = config.get("offline", {}).get("database", {}).get("collection_name", "omni_rag_docs")
                     # 清理逻辑
-                    if clear_db:
+                    if args.clear:
                         print(f"💣 警告：正在清空原有的集合 [{collection_name}] ...")
                         db_manager.client.delete_collection(collection_name)
                         print("✅ 清理完毕！")
                     db_manager.create_collection_if_not_exists(config.get("offline", {}).get("database", {}).get("collection_name", "omni_rag_docs"))
-                    build_json_pipeline(args.file, workers, db_manager, config)
+                    build_text_pipeline(args.file, args.type, workers, db_manager, config)
                 else:
                     print(f"❌ 找不到文件: {args.file}，请检查路径是否正确！")
                     

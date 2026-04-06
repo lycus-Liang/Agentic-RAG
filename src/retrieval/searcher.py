@@ -102,10 +102,21 @@ class Searcher:
         # ==========================================
         if self.use_reranker and points:
             sentence_pairs = []
+
+            # 🚀 净化 1：对 Query 进行终极清洗
+            clean_query = str(query).encode('utf-8', 'ignore').decode('utf-8')
+
             for point in points:
                 # 从 payload 中拿回建库时存入的 markdown_text
                 doc_text = point.payload.get("markdown_text", "")
-                sentence_pairs.append([query, doc_text])
+                # 🛡️ 兜底：如果数据库里查出来的是 None，强转为空字符串
+                if doc_text is None:
+                    doc_text = ""
+
+                # 🚀 净化 2：对数据库捞出来的文档也进行清洗
+                clean_doc = str(doc_text).encode('utf-8', 'ignore').decode('utf-8')
+
+                sentence_pairs.append([clean_query, clean_doc])
             
             # 计算重排分数
             scores = self.reranker.compute_score(sentence_pairs, normalize=True)

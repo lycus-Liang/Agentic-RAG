@@ -18,6 +18,7 @@ gen_prompts = prompts_dict.get("agent_generator", {})
 
 def retrieve_node(state: GraphState) -> Dict:
     question = state["question"]
+
     print(f"--- 🔍 检索执行: '{question}' ---")
     original_q = state.get("original_question", question)
     text_only = state.get("text_only", False)

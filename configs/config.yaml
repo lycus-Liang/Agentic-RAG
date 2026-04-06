@@ -27,16 +27,16 @@ online:
     reranker: "BAAI/bge-reranker-v2-m3"
 
   # 调用 LLM API
-  # llm_api:
-  #   base_url: "https://api.agicto.cn/v1" # 请替换为 AGICTO 实际的 Base URL
-  #   reasoning_model: "gpt-4o-mini"   # 用于 HyDE、Critic、Router (速度快、极度便宜)
-  #   generation_model: "gpt-4o"       # 用于最终的图文理解与答案生成 (能力强、支持视觉)
-    
-  # 本地模型（需要先用 vllm 启动本地模型）
   llm_api:
-    base_url: "http://localhost:8000/v1"  # 指向刚刚用 vLLM 启动的本地端口
-    reasoning_model: "Qwen/Qwen3-8B"      # 名字必须和启动时的 served-model-name 一致
-    generation_model: "Qwen/Qwen3-8B"
+    base_url: "https://api.agicto.cn/v1" # 请替换为 AGICTO 实际的 Base URL
+    reasoning_model: "gpt-4o-mini"   # 用于 HyDE、Critic、Router (速度快、极度便宜)
+    generation_model: "gpt-4o"       # 用于最终的图文理解与答案生成 (能力强、支持视觉)
+    
+  # # 本地模型（需要先用 vllm 启动本地模型）
+  # llm_api:
+  #   base_url: "http://127.0.0.1:6666/v1"  # 指向刚刚用 vLLM 启动的本地端口
+  #   reasoning_model: "Qwen/Qwen3-8B"      # 名字必须和启动时的 served-model-name 一致
+  #   generation_model: "Qwen/Qwen3-8B"
   
   database:
     host: "localhost"
@@ -48,16 +48,16 @@ online:
   retrieval_strategies:
     use_dense: true   # 开启稠密语义检索
     use_sparse: true  # 开启稀疏关键词检索
-    use_vision: true # 是否开启 ColPali 视觉探针检索 (由于极耗显存，默认可关，视需求开启)
+    use_vision: false # 是否开启 ColPali 视觉探针检索 (由于极耗显存，默认可关，视需求开启)
     use_hyde: false   # HyDE 引擎总开关
     use_reranker: true # Reranker 开关
 
   top_k:
     cr_top_k_withReranker: 100
     cr_top_k: 10  # 粗筛
-    fr_top_k: 20   # 精筛
+    fr_top_k: 3   # 精筛
 
   # 工作流开关
   workflow:
-    use_agentic_loop: true  # 开启后启用考官反思与重写循环；关闭则只做单纯的“检索->生成”直线任务
+    use_agentic_loop: false  # 开启后启用考官反思与重写循环；关闭则只做单纯的“检索->生成”直线任务
     max_retries: 2          # 允许考官打回重搜的最大次数

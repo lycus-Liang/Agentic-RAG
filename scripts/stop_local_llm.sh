@@ -1,23 +1,17 @@
 #!/bin/bash
 
-echo "==========================================="
-echo "  🛑 准备关闭本地大模型 (vLLM) 服务"
-echo "==========================================="
+echo "🛑 正在执行 vLLM 清理..."
 
-# 查找包含 vllm.entrypoints.openai.api_server 的进程 PID
-VLLM_PIDS=$(pgrep -f "vllm.entrypoints.openai.api_server")
+# 1. 击杀 vLLM API 服务器 (前端)
+pkill -9 -f "vllm.entrypoints"
 
-if [ -z "$VLLM_PIDS" ]; then
-    echo "💡 没有检测到正在运行的 vLLM 服务。"
-else
-    echo "🔥 发现 vLLM 进程 PID: $VLLM_PIDS"
-    echo "⏳ 正在安全终止进程释放显存..."
-    
-    # 遍历杀死所有相关进程
-    for PID in $VLLM_PIDS; do
-        kill -9 $PID
-    done
-    
-    echo "✅ vLLM 服务已成功关闭！显存已释放。"
-fi
-echo "==========================================="
+# 2. 🌟 核心杀招：专门击杀底层 C++ 引擎 (解决你的 2088 僵尸)
+pkill -9 -f "VLLM::EngineCore"
+
+# 3. 扫荡所有名字里带 vllm 的漏网之鱼
+pkill -9 -f "vllm"
+
+# 4. 释放 6666 端口（如果你用的是其他端口，请把 6666 改掉）
+fuser -k -9 6666/tcp >/dev/null 2>&1
+
+echo "✅ 显存已彻底释放！"

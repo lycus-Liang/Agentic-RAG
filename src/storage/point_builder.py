@@ -62,7 +62,7 @@ class PointBuilder:
         }
         # 5. 动态判断：只有当视觉向量真实存在时，才把这个 key 加入字典！
         if vision_multivec is not None:
-            vectors["colpali_vision"] = vision_multivec
+            vector_struct["colpali_vision"] = vision_multivec
 
         # 6. 返回完整结构体
         return models.PointStruct(

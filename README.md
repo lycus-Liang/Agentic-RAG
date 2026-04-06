@@ -40,27 +40,28 @@ cd scripts/
 ---
 
 ## 📦 二、 离线知识建库 (Ingestion & Build)
-系统支持“单文件”与“文件夹批量”建库，并根据文件类型自动路由到对应的解析流水线。
+系统采用了先进的**统一中间态与策略路由架构 (Strategy Registry)**，支持“单文件”与“文件夹批量”建库。无论是复杂的多模态 PDF，还是各类结构化纯文本（JSON, JSONL 等），系统都会自动路由到对应的解析流水线。
 
 **通用参数说明：**
-* `--type`: 数据源类型，可选 `pdf` (默认，全模态解析) 或 `json` (纯文本极速解析)。
+* `--type`: 指定数据源类型。当前内置支持 `pdf` (全模态图文解析)、`json` (标准问答语料)、`jsonl` (Alpaca 微调指令语料)。
 * `--clear`: [可选] 附加此参数将在建库前**清空**已有的 Qdrant 集合，防止数据重复。
 
-### 📄 模式 A：PDF 全模态建库 (极其消耗算力与显存)
+### 📄 模式 A：PDF 全模态建库 (深度解析图表与视觉特征)
 ```bash
 # 单个 PDF 文件建库
 python main.py build --file ./data/raw/sample.pdf --type pdf
 
-# 批量 PDF 文件夹建库（自动建立批次子目录，推荐加上 --clear 保持库纯洁）
+# 批量 PDF 文件夹建库（推荐加上 --clear 保持库纯洁）
 python main.py build --dir ./data/raw/officeqa_test --type pdf --clear
 ```
 
-### 📝 模式 B：JSON 纯文本极速建库 (物理隔离视觉模型)
+### 📝 模式 B：纯文本极速建库 (物理隔离视觉模型，支持多格式扩展)
+纯文本模式下，系统将跳过耗时的视觉推理模型，极速提取双路文本向量。
 ```bash
-# 单个 JSON 文件建库
+# 单个 JSON（或其它类型，jsonl等） 文件建库
 python main.py build --file ./data/qa_corpus.json --type json
 
-# 批量 JSON 文件夹建库
+# 批量 JSON（或其它类型，jsonl等） 文件夹建库
 python main.py build --dir ./data/json_dataset --type json --clear
 ```
 
@@ -103,3 +104,52 @@ streamlit run notebooks/web_ui.py --server.port 6006
 python -m src.ingestion.text_worker
 python -m src.ingestion.json_parser
 ```
+
+---
+
+## 🔌 六、API 微服务 (API Service)
+
+为了方便将本项目接入现有的业务系统（如 Web 前端、微信小程序、企业内网），系统内置了基于 `FastAPI` 的高性能异步接口服务。
+
+### 1. 启动 API 服务
+在项目根目录下运行：
+```bash
+python api_server.py
+```
+服务默认将在 `http://0.0.0.0:6666` 启动。
+
+### 2. 交互式 API 文档 (Swagger UI)
+启动服务后，强烈建议在浏览器中访问：
+👉 `http://<你的服务器IP>:6666/docs`
+
+FastAPI 会自动生成可视化接口文档，可直接在网页上模拟发送请求、测试 RAG 检索和生成效果。
+
+### 3. 核心 API 路由说明
+系统对外暴露了两个核心接口，均支持 POST 请求：
+
+#### /v1/retrieve (纯检索接口)
+- 功能：仅执行多路并发检索，返回带有相关性打分的原始文档块，不经过大模型生成。
+- 适用场景：你的系统已有独立的大模型，仅需要借用本项目的全模态检索能力。
+
+#### /v1/chat (端到端问答接口)
+- 功能：完整执行 Agentic RAG 流水线（查询重写 -> 检索 -> 提示词组装 -> 大模型思考 -> 流式/全量输出）。
+- 适用场景：直接获取最终答案及溯源文档，开箱即用。
+
+### 4. 调用示例 (Python)
+第三方业务系统可以通过标准 HTTP 请求轻松接入：
+
+```python
+import requests
+
+url = "http://localhost:6666/v1/chat"
+payload = {
+  "query": "请解释一下 BGE-M3 的双路召回原理？",
+  "text_only": True,
+  "session_id": "user_12345"  # 支持多用户并发会话隔离
+}
+
+response = requests.post(url, json=payload)
+print(response.json())
+```
+
+---
