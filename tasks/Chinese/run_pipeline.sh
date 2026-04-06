@@ -22,8 +22,8 @@ echo "🌍 当前工作目录已切换至项目根目录: $(pwd)"
 # ==========================================
 # 📂 配置文件路径定义
 # ==========================================
-# 原始知识库语料文件夹 (读取这里的纯文本 JSON，建库后数据将存入 Qdrant 数据库)
-KNOWLEDGE_DIR="$PROJECT_ROOT/data/raw/Chinese_json"
+# 原始知识库语料文件 (读取这里的纯文本 JSONL，建库后数据将存入 Qdrant 数据库)
+KNOWLEDGE_DIR="$PROJECT_ROOT/data/raw/xlj_fixed.jsonl"
 
 # 测试用的问题文件路径 (根据你的要求精确指定)
 TEST_JSONL="$PROJECT_ROOT/data/eval/test.jsonl"               
@@ -43,12 +43,12 @@ cd ..
 sleep 3 
 
 echo -e "\n⏳ [步骤 2/3] 清理历史数据，并开始极速纯文本建库..."
-if [ ! -d "$KNOWLEDGE_DIR" ]; then
-    echo "❌ 错误: 找不到知识库原始语料文件夹 $KNOWLEDGE_DIR，请检查路径！"
+if [ ! -f "$KNOWLEDGE_DIR" ]; then
+    echo "❌ 错误: 找不到知识库原始语料文件 $KNOWLEDGE_DIR，请检查路径！"
     exit 1
 fi
 # 这里读取 KNOWLEDGE_DIR 下的 JSON，处理后由 Python 写入 Qdrant
-python main.py build --dir "$KNOWLEDGE_DIR" --type json --clear
+# python main.py build --file "$KNOWLEDGE_DIR" --type jsonl --clear
 
 echo -e "\n⏳ [步骤 3/3] 启动 LLM 自动化压测与判分..."
 if [ ! -f "$TEST_JSONL" ]; then
