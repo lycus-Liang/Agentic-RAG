@@ -28,9 +28,14 @@ online:
 
   # 调用 LLM API
   llm_api:
-    base_url: "https://api.agicto.cn/v1" # 请替换为 AGICTO 实际的 Base URL
-    reasoning_model: "gpt-4o-mini"   # 用于 HyDE、Critic、Router (速度快、极度便宜)
-    generation_model: "gpt-4o"       # 用于最终的图文理解与答案生成 (能力强、支持视觉)
+    # 供应商选择：
+    # AGICTO：base_url: "https://api.agicto.cn/v1"
+    # siliconflow：base_url: "https://api.siliconflow.cn/v1"
+    base_url: "https://api.agicto.cn/v1"
+    # reasoning_model: "Qwen/Qwen3-30B-A3B-Instruct-2507"   # 用于 HyDE、Critic、Router (速度快、极度便宜)
+    # generation_model: "Qwen/Qwen3-30B-A3B-Instruct-2507"       # 用于最终的图文理解与答案生成 (能力强、支持视觉)
+    reasoning_model: "gpt-4o-mini"
+    generation_model: "gpt-4o-mini"
     
   # # 本地模型（需要先用 vllm 启动本地模型）
   # llm_api:
@@ -41,14 +46,14 @@ online:
   database:
     host: "localhost"
     port: 6333
-    collection_name: "Chinese"
+    collection_name: "omni_rag_docs"
   
   # 🎯 核心控制台：多路召回开关
   # 你可以随时在这里开启/关闭特定维度的检索
   retrieval_strategies:
     use_dense: true   # 开启稠密语义检索
     use_sparse: true  # 开启稀疏关键词检索
-    use_vision: false # 是否开启 ColPali 视觉探针检索 (由于极耗显存，默认可关，视需求开启)
+    use_vision: true # 是否开启 ColPali 视觉探针检索 (由于极耗显存，默认可关，视需求开启)
     use_hyde: false   # HyDE 引擎总开关
     use_reranker: true # Reranker 开关
 
@@ -59,5 +64,6 @@ online:
 
   # 工作流开关
   workflow:
-    use_agentic_loop: false  # 开启后启用考官反思与重写循环；关闭则只做单纯的“检索->生成”直线任务
-    max_retries: 2          # 允许考官打回重搜的最大次数
+    use_agentic_loop: true   # 开启后启用“规划 -> 多跳检索 -> 步骤评估 -> 综合生成”的 Agentic RAG
+    max_plan_steps: 4        # 单次问题最多拆解出的检索步骤数
+    max_retries: 2           # 单个检索步骤允许 fallback 重搜的最大次数

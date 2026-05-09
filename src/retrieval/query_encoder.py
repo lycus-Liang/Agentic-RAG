@@ -28,17 +28,22 @@ class QueryEncoder:
         print(f"📝 加载文本检索模型: {text_model_name}")
         self.bge_model = BGEM3FlagModel(text_model_name, use_fp16=True)
         
-        # 2. 加载 ColPali/ColQwen 视觉检索探针
+        # 2. 按需加载 ColPali/ColQwen 视觉检索探针
         vision_model_name = models.get("vision_encoder", "vidore/colqwen2-v0.1")
         self.vision_device = models.get("vision_device", "cuda")
-        
-        print(f"👁️ 加载视觉检索模型: {vision_model_name}")
-        self.vision_model = ColQwen2.from_pretrained(
-            vision_model_name,
-            torch_dtype=torch.bfloat16,
-            device_map=self.vision_device
-        ).eval()
-        self.vision_processor = ColQwen2Processor.from_pretrained(vision_model_name)
+        self.vision_model = None
+        self.vision_processor = None
+
+        if self.strategies.get("use_vision", False):
+            print(f"👁️ 加载视觉检索模型: {vision_model_name}")
+            self.vision_model = ColQwen2.from_pretrained(
+                vision_model_name,
+                torch_dtype=torch.bfloat16,
+                device_map=self.vision_device
+            ).eval()
+            self.vision_processor = ColQwen2Processor.from_pretrained(vision_model_name)
+        else:
+            print("⚡ 视觉检索未启用，跳过 ColQwen2 模型加载。")
         
         # 3. 初始化 HyDE 引擎组件 (如果开启)
         self.use_hyde = self.strategies.get("use_hyde", False)
@@ -96,13 +101,23 @@ class QueryEncoder:
             return ""
 
     @torch.no_grad()
-    def encode(self, query: str, text_only: bool = False) -> Dict[str, Any]:
+    def encode(self, query: str, text_only: bool = False, retrieval_mode: str = "hybrid") -> Dict[str, Any]:
         """将自然语言转化为三路召回向量钥匙"""
+        retrieval_mode = (retrieval_mode or "hybrid").lower()
+        if retrieval_mode not in {"text", "vision", "hybrid"}:
+            retrieval_mode = "hybrid"
+        if text_only:
+            retrieval_mode = "text"
+
+        use_text_encoder = retrieval_mode in {"text", "hybrid"}
+        use_vision_encoder = retrieval_mode in {"vision", "hybrid"}
+        encoded = {"query_text": query}
+
         # ==========================================
         # 1. HyDE 拦截与处理
         # ==========================================
         search_query_for_text = query
-        if self.use_hyde:
+        if use_text_encoder and self.use_hyde:
             hyde_expansion = self._get_hyde_expansion(query)
             if hyde_expansion: # 如果生成成功或命中缓存
                 search_query_for_text = f"{query}。{hyde_expansion}"
@@ -110,34 +125,29 @@ class QueryEncoder:
         # ==========================================
         # 2. BGE-M3 提取 Dense 与 Sparse
         # ==========================================
-        clean_query = str(search_query_for_text).encode('utf-8', 'ignore').decode('utf-8')
-        bge_out = self.bge_model.encode([clean_query], return_dense=True, return_sparse=True)
-        dense_vec = bge_out['dense_vecs'][0].tolist()
-        
-        lexical_weights = bge_out['lexical_weights'][0]
-        sparse_vec = {
-            "indices": [int(k) for k in lexical_weights.keys()],
-            "values": list(lexical_weights.values())
-        }
+        if use_text_encoder:
+            clean_query = str(search_query_for_text).encode('utf-8', 'ignore').decode('utf-8')
+            bge_out = self.bge_model.encode([clean_query], return_dense=True, return_sparse=True)
+            encoded["bge_dense"] = bge_out['dense_vecs'][0].tolist()
+
+            lexical_weights = bge_out['lexical_weights'][0]
+            encoded["bge_sparse"] = {
+                "indices": [int(k) for k in lexical_weights.keys()],
+                "values": list(lexical_weights.values())
+            }
         
         # ==========================================
         # 3. ColPali/ColQwen 提取视觉多向量探针
         # ==========================================
-        vision_multivec = None
-
-        # 拦截：只有在非纯文本模式下，才去惊动庞大的视觉模型！
-        if not text_only:
+        if use_vision_encoder and self.vision_model is not None and self.vision_processor is not None:
             # 极其重要：处理 Query 和处理 Image 的 API 是不同的！
             vision_inputs = self.vision_processor.process_queries([query]).to(self.vision_device)
             vision_embeddings = self.vision_model(**vision_inputs)
             # 将 3D Tensor 转换为 Qdrant 需要的 List[List[float]]
-            vision_multivec = vision_embeddings[0].cpu().float().numpy().tolist()
-        else:
+            encoded["colpali_vision"] = vision_embeddings[0].cpu().float().numpy().tolist()
+        elif not use_vision_encoder:
             print("  ⚡ [模式降维] 纯文本模式开启，已物理跳过 ColQwen2 视觉向量提取。")
+        else:
+            print("  ⚠️ [视觉不可用] 视觉检索模型未加载，无法生成 ColPali 查询向量。")
 
-        return {
-            "query_text": query,
-            "bge_dense": dense_vec,
-            "bge_sparse": sparse_vec,
-            "colpali_vision": vision_multivec
-        }
+        return encoded

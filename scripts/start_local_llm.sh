@@ -25,7 +25,7 @@ mkdir -p "$LOG_DIR"
 
 # 检查端口是否已经被占用
 if lsof -Pi :$PORT -sTCP:LISTEN -t >/dev/null ; then
-    echo "⚠️ 警告: 端口 $PORT 已经被占用！请先执行 stop_llm.sh 或检查是否有其他程序在使用该端口。"
+    echo "⚠️ 警告: 端口 $PORT 已经被占用！请先执行 stop_local_llm.sh 或检查是否有其他程序在使用该端口。"
     exit 1
 fi
 

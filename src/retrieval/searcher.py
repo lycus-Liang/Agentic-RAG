@@ -40,30 +40,46 @@ class Searcher:
             self.reranker = FlagReranker(reranker_model, use_fp16=True)
             print("✅ Reranker 就绪！")
 
-    def search(self, query: str, top_k: int = None, text_only: bool = False):
+    def search(self, query: str, top_k: int = None, text_only: bool = False, retrieval_mode: str = "hybrid"):
         """
         受配置开关控制的多路并发召回 + Reranker 重排
         :param query: 搜索词
         :param top_k: 最终返回数量。若不传，则默认使用 config.yaml 中的 fr_top_k 精筛数量
+        :param retrieval_mode: text / vision / hybrid，用于 Agentic RAG 的步骤级模态路由
         """
         # 决定最终输出数量
         final_top_k = top_k if top_k is not None else self.fr_top_k
-        
-        encoded = self.encoder.encode(query, text_only=text_only)
+
+        retrieval_mode = (retrieval_mode or "hybrid").lower()
+        if retrieval_mode not in {"text", "vision", "hybrid"}:
+            retrieval_mode = "hybrid"
+
+        vision_enabled = self.strategies.get("use_vision", False)
+        if text_only:
+            retrieval_mode = "text"
+        elif retrieval_mode == "vision" and not vision_enabled:
+            print("  ⚠️ [模态降级] vision 检索未启用，降级为 text 检索。")
+            retrieval_mode = "text"
+
+        encode_text_only = text_only or retrieval_mode == "text" or not vision_enabled
+        encoded = self.encoder.encode(query, text_only=encode_text_only, retrieval_mode=retrieval_mode)
         prefetch_queries = []
 
         # 核心逻辑：根据是否开启 Reranker，决定粗排 (Recall) 捞取的数据量
         fetch_limit = self.cr_top_k_withReranker if self.use_reranker else self.cr_top_k
         prefetch_limit = fetch_limit * 2 # RRF 的底层召回池通常需要是粗排目标的 2 倍，确保融合质量
         
+        use_text_routes = retrieval_mode in {"text", "hybrid"}
+        use_vision_route = retrieval_mode in {"vision", "hybrid"}
+
         # 路线 A：稠密检索开关
-        if self.strategies.get("use_dense", True) and "bge_dense" in encoded:
+        if use_text_routes and self.strategies.get("use_dense", True) and "bge_dense" in encoded:
             prefetch_queries.append(
                 models.Prefetch(query=encoded["bge_dense"], using="bge_dense", limit=prefetch_limit)
             )
             
         # 路线 B：稀疏检索开关
-        if self.strategies.get("use_sparse", True) and "bge_sparse" in encoded:
+        if use_text_routes and self.strategies.get("use_sparse", True) and "bge_sparse" in encoded:
             prefetch_queries.append(
                 models.Prefetch(
                     query=models.SparseVector(
@@ -75,10 +91,29 @@ class Searcher:
             )
 
         # 路线 C：视觉检索开关
-        if not text_only and self.strategies.get("use_vision", False) and encoded.get("colpali_vision"):
+        if use_vision_route and vision_enabled and encoded.get("colpali_vision"):
             prefetch_queries.append(
                 models.Prefetch(query=encoded["colpali_vision"], using="colpali_vision", limit=prefetch_limit)
             )
+
+        if not prefetch_queries and retrieval_mode == "vision":
+            print("  ⚠️ [模态降级] vision 未产生可用向量，降级为 text 检索。")
+            retrieval_mode = "text"
+            encoded = self.encoder.encode(query, text_only=True, retrieval_mode="text")
+            if self.strategies.get("use_dense", True) and "bge_dense" in encoded:
+                prefetch_queries.append(
+                    models.Prefetch(query=encoded["bge_dense"], using="bge_dense", limit=prefetch_limit)
+                )
+            if self.strategies.get("use_sparse", True) and "bge_sparse" in encoded:
+                prefetch_queries.append(
+                    models.Prefetch(
+                        query=models.SparseVector(
+                            indices=encoded["bge_sparse"]["indices"],
+                            values=encoded["bge_sparse"]["values"]
+                        ),
+                        using="bge_sparse", limit=prefetch_limit
+                    )
+                )
 
         # 防御性判断：如果全关了，直接报错
         if not prefetch_queries:
@@ -100,7 +135,7 @@ class Searcher:
         # ==========================================
         # 2. 精排阶段 (Rerank): 使用 Cross-Encoder 进行终极审判
         # ==========================================
-        if self.use_reranker and points:
+        if self.use_reranker and points and retrieval_mode != "vision":
             sentence_pairs = []
 
             # 🚀 净化 1：对 Query 进行终极清洗

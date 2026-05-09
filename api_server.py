@@ -41,6 +41,7 @@ class RetrieveRequest(BaseModel):
     query: str = Field(..., description="用户的搜索词或问题")
     top_k: Optional[int] = Field(None, description="期望返回的文档片段数量")
     text_only: bool = Field(False, description="是否开启纯文本极速模式 (关闭视觉检索)")
+    retrieval_mode: str = Field("hybrid", description="检索模态：text、vision 或 hybrid")
 
 class DocumentDTO(BaseModel):
     source_doc: str
@@ -73,7 +74,8 @@ async def api_retrieve(request: RetrieveRequest):
         points = searcher.search(
             query=request.query, 
             top_k=request.top_k, 
-            text_only=request.text_only
+            text_only=request.text_only,
+            retrieval_mode=request.retrieval_mode
         )
         
         docs = []
