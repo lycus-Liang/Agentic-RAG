@@ -16,6 +16,8 @@ if _preset_hf_endpoint is not None:
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.agent.workflow import build_agentic_rag
+from src.agent.retrieval_tools import get_searcher
+from src.utils.image_quality import filter_informative_images
 
 # ==========================================
 # 🎨 页面基础配置
@@ -24,14 +26,44 @@ st.set_page_config(page_title="Omni-Modal RAG", page_icon="🧠", layout="wide")
 st.title("🧠 Omni-Modal Agentic RAG")
 st.markdown("支持**图文多模态检索**与**自主反思重写**的工业级大模型引擎。")
 
+with st.sidebar:
+    show_retrieval_process = st.checkbox("显示检索过程", value=False)
+
+
+def render_tool_trace(tool_trace):
+    if not tool_trace:
+        st.caption("暂无工具检索记录。")
+        return
+
+    for idx, trace in enumerate(tool_trace, start=1):
+        step_label = trace.get("step_id") or f"step_{idx}"
+        st.markdown(
+            f"{idx}. `{step_label}` -> `{trace.get('tool_name', '')}` | "
+            f"planned=`{trace.get('planned_mode', '')}` | "
+            f"actual=`{trace.get('actual_mode', trace.get('mode', ''))}` | "
+            f"hits=`{trace.get('hit_count', 0)}`"
+        )
+        st.caption(
+            f"planned query: {trace.get('planned_query', '')} | "
+            f"actual query: {trace.get('actual_query', trace.get('query', ''))}"
+        )
+
 # ==========================================
 # 🤖 核心引擎初始化 (缓存机制，避免每次点击重新加载)
 # ==========================================
 @st.cache_resource
 def init_agent():
-    return build_agentic_rag()
+    app = build_agentic_rag()
+    get_searcher()
+    return app
 
-app = init_agent()
+try:
+    with st.spinner("正在加载检索模型与 Agent 工作流，请稍候..."):
+        app = init_agent()
+    st.success("模型加载完成，可以开始提问。", icon="✅")
+except Exception as e:
+    st.error(f"模型加载失败: {e}")
+    st.stop()
 
 # 初始化聊天历史记录
 if "messages" not in st.session_state:
@@ -50,6 +82,9 @@ for msg in st.session_state.messages:
                 for idx, img_path in enumerate(msg["images"]):
                     if os.path.exists(img_path):
                         cols[idx % len(cols)].image(img_path, caption=f"来源图片 {idx+1}", width=180)
+        if show_retrieval_process and msg.get("tool_trace"):
+            with st.expander(f"检索过程 ({len(msg['tool_trace'])} 次)", expanded=False):
+                render_tool_trace(msg["tool_trace"])
 
 # ==========================================
 # 🚀 核心对话流
@@ -79,10 +114,12 @@ if prompt := st.chat_input("请输入您的问题"):
         # 将回调函数塞进输入字典里，传给 LangGraph
         inputs = {
             "question": prompt, 
-            "ui_stream_callback": stream_updater
+            "ui_stream_callback": stream_updater,
+            "debug": show_retrieval_process
         }
         final_answer = ""
         source_images = []
+        tool_trace = []
         
         try:
             for output in app.stream(inputs):
@@ -92,7 +129,15 @@ if prompt := st.chat_input("请输入您的问题"):
                         validation = value.get("plan_validation", {})
                         status.write(f"🧭 动作: 已规划 {len(plan)} 个检索步骤。")
                         if validation.get("repaired"):
-                            status.write(f"  计划已自动修复：{', '.join(validation.get('issues', [])[:3])}")
+                            repair_reasons = validation.get("pre_repair_issues", [])
+                            status.write(
+                                f"  初始计划触发自动修复，已修复为当前 {len(plan)} 步计划。"
+                            )
+                            if repair_reasons:
+                                status.write(f"  修复原因：{', '.join(repair_reasons[:3])}")
+                        final_issues = validation.get("final_issues", [])
+                        if final_issues:
+                            status.warning(f"  当前计划仍有风险：{', '.join(final_issues[:3])}")
                         for idx, step in enumerate(plan, 1):
                             deps = step.get("depends_on", [])
                             dep_text = f" | 依赖: {', '.join(deps)}" if deps else ""
@@ -138,13 +183,29 @@ if prompt := st.chat_input("请输入您的问题"):
                             )
                     elif key == "retrieve":
                         status.write("🔍 动作: 正在多路召回向量数据库...")
+                    elif key == "tool_call_agent":
+                        tool_trace = value.get("tool_trace", [])
+                        if show_retrieval_process:
+                            status.write(f"🧰 动作: 模型完成 {len(tool_trace)} 次工具检索。")
+                            for idx, trace in enumerate(tool_trace, start=1):
+                                status.write(
+                                    f"  {trace.get('step_id', f'Step {idx}')}: "
+                                    f"计划 `{trace.get('planned_mode', '')}` / "
+                                    f"`{trace.get('planned_query', '')}`，"
+                                    f"实际 `{trace.get('tool_name', '')}` / "
+                                    f"`{trace.get('actual_query', trace.get('query', ''))}`，"
+                                    f"命中 {trace.get('hit_count', 0)} 条。"
+                                )
                     elif key == "generate":
                         status.write("✍️ 动作: 正在调用 VLM 生成图文融合答案...")
                         final_answer = value.get("generation", "")
                         
                         docs = value.get("documents", [])
                         for doc in docs:
-                            crops = doc.payload.get("extracted_crop_paths", [])
+                            crops, _ = filter_informative_images(
+                                doc.payload.get("extracted_crop_paths", []),
+                                doc.payload.get("proxy_descriptions", []),
+                            )
                             for crop in crops:
                                 if crop not in source_images and len(source_images) < 3:
                                     source_images.append(crop)
@@ -166,11 +227,16 @@ if prompt := st.chat_input("请输入您的问题"):
                     for idx, img_path in enumerate(source_images):
                         if os.path.exists(img_path):
                             cols[idx % len(cols)].image(img_path, width=180)
+
+            if show_retrieval_process:
+                with st.expander(f"检索过程 ({len(tool_trace)} 次)", expanded=False):
+                    render_tool_trace(tool_trace)
                         
             st.session_state.messages.append({
                 "role": "assistant", 
                 "content": final_answer,
-                "images": source_images
+                "images": source_images,
+                "tool_trace": tool_trace
             })
 
         except Exception as e:

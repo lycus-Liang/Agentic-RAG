@@ -14,6 +14,7 @@ offline:
     host: "localhost"
     port: 6333
     collection_name: "Chinese"
+    timeout: 120
     batch_size: 10 # 针对多向量的防爆破小批次
 
 # ------------------------------------------

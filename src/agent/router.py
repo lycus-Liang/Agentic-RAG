@@ -209,7 +209,16 @@ def _validate_or_repair_plan(
     issues = basic_issues + [str(issue) for issue in llm_issues]
     should_repair = bool(basic_issues) or not validation.get("valid", True)
     if not should_repair:
-        return {"plan": plan, "validation": {"valid": True, "issues": issues, "repaired": False}}
+        return {
+            "plan": plan,
+            "validation": {
+                "valid": True,
+                "issues": issues,
+                "pre_repair_issues": issues,
+                "final_issues": issues,
+                "repaired": False,
+            },
+        }
 
     try:
         repaired_plan = _repair_plan_with_llm(question, plan, issues, text_only=text_only)
@@ -217,16 +226,35 @@ def _validate_or_repair_plan(
         if repaired_plan and not repaired_issues:
             return {
                 "plan": repaired_plan,
-                "validation": {"valid": True, "issues": issues, "repaired": True},
+                "validation": {
+                    "valid": True,
+                    "issues": [],
+                    "pre_repair_issues": issues,
+                    "final_issues": [],
+                    "repaired": True,
+                },
             }
         return {
             "plan": repaired_plan or plan,
-            "validation": {"valid": not repaired_issues, "issues": issues + repaired_issues, "repaired": True},
+            "validation": {
+                "valid": not repaired_issues,
+                "issues": repaired_issues,
+                "pre_repair_issues": issues,
+                "final_issues": repaired_issues,
+                "repaired": True,
+            },
         }
     except Exception as e:
+        final_issues = [f"repair_failed: {e}"]
         return {
             "plan": plan,
-            "validation": {"valid": False, "issues": issues + [f"repair_failed: {e}"], "repaired": False},
+            "validation": {
+                "valid": False,
+                "issues": issues + final_issues,
+                "pre_repair_issues": issues,
+                "final_issues": final_issues,
+                "repaired": False,
+            },
         }
 
 
@@ -391,7 +419,7 @@ def plan_query_node(state: GraphState) -> Dict:
 
     for idx, step in enumerate(plan, start=1):
         print(f"  {idx}. [{step['mode']}] {step['sub_question']}")
-    if plan_validation.get("issues"):
+    if plan_validation.get("pre_repair_issues") or plan_validation.get("final_issues"):
         print(f"  🧪 计划校验: {plan_validation}")
 
     return {

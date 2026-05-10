@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from fastapi.middleware.cors import CORSMiddleware
+from src.utils.image_quality import filter_informative_images
 
 # 🌟 架构师铁律：在导入任何底层大模型或 RAG 库之前，先加载环境变量！
 from dotenv import load_dotenv
@@ -12,7 +13,7 @@ print(f"🌍 当前 HF 镜像源: {os.environ.get('HF_ENDPOINT', '官方默认')
 # ==========================================
 
 # 1. 导入你现有的 RAG 核心组件
-from src.agent.tools import searcher
+from src.agent.retrieval_tools import get_searcher
 from src.agent.workflow import build_agentic_rag
 
 # 初始化 Agent 图状态机
@@ -57,12 +58,14 @@ class RetrieveResponse(BaseModel):
 class ChatRequest(BaseModel):
     query: str = Field(..., description="用户的提问")
     text_only: bool = Field(False, description="是否开启纯文本极速模式")
+    debug: bool = Field(False, description="是否返回 tool-call 检索轨迹")
     # 如果系统是多用户的，可以用 session_id 隔离记忆
     session_id: str = Field("default_user", description="用于隔离对话历史的会话ID") 
 
 class ChatResponse(BaseModel):
     answer: str
     sources: List[DocumentDTO]
+    tool_trace: Optional[List[Dict[str, Any]]] = None
 
 # ==========================================
 # 🔌 接口 1：纯检索服务 (只捞数据，不生成)
@@ -71,7 +74,7 @@ class ChatResponse(BaseModel):
 async def api_retrieve(request: RetrieveRequest):
     try:
         # 直接调用底层的 search 方法
-        points = searcher.search(
+        points = get_searcher().search(
             query=request.query, 
             top_k=request.top_k, 
             text_only=request.text_only,
@@ -86,7 +89,10 @@ async def api_retrieve(request: RetrieveRequest):
                 page_num=payload.get("page_num", 0),
                 markdown_text=payload.get("markdown_text", ""),
                 score=p.score,
-                images=payload.get("extracted_crop_paths", [])
+                images=filter_informative_images(
+                    payload.get("extracted_crop_paths", []),
+                    payload.get("proxy_descriptions", []),
+                )[0]
             ))
             
         return RetrieveResponse(query=request.query, documents=docs)
@@ -105,7 +111,8 @@ async def api_chat(request: ChatRequest):
         
         initial_state = {
             "question": request.query,
-            "text_only": request.text_only
+            "text_only": request.text_only,
+            "debug": request.debug
         }
         
         # 触发 Agent 工作流
@@ -123,10 +130,14 @@ async def api_chat(request: ChatRequest):
                 page_num=payload.get("page_num", 0),
                 markdown_text=payload.get("markdown_text", ""),
                 score=p.score,
-                images=payload.get("extracted_crop_paths", [])
+                images=filter_informative_images(
+                    payload.get("extracted_crop_paths", []),
+                    payload.get("proxy_descriptions", []),
+                )[0]
             ))
             
-        return ChatResponse(answer=answer, sources=docs)
+        tool_trace = final_state.get("tool_trace") if request.debug else None
+        return ChatResponse(answer=answer, sources=docs, tool_trace=tool_trace)
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"问答生成失败: {str(e)}")

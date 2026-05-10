@@ -32,6 +32,7 @@ qdrant-client
 
 # LLM API
 openai
+python-dotenv
 
 # agent 核心库
 langgraph langchain-core

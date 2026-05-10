@@ -19,6 +19,7 @@ class GraphState(TypedDict, total=False):
     step_should_retry: bool        # 当前步骤是否需要 fallback 后重试
     ui_stream_callback: Any        # 专门为 UI 流式输出准备的回调钩子
     text_only: bool                # 应对纯文本检索
+    debug: bool                    # 是否输出/返回工具检索调试轨迹
     retrieval_plan: List[Dict[str, Any]]  # 子问题、多跳路径与模态路由计划
     plan_validation: Dict[str, Any]
     current_step_index: int        # 当前执行到第几个计划步骤
@@ -35,3 +36,6 @@ class GraphState(TypedDict, total=False):
     step_results: List[Dict[str, Any]]    # 每一步的检索证据与评估结果
     resolved_facts: Dict[str, Any]
     agent_trace: List[str]         # UI/日志可展示的轻量执行轨迹
+    tool_trace: List[Dict[str, Any]]       # tool-call 检索轨迹
+    tool_call_count: int
+    tool_agent_stop_reason: str

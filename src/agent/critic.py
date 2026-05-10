@@ -3,6 +3,7 @@ import yaml
 from typing import Dict
 from src.agent.state import GraphState
 from src.utils.llm_client import LLMClient
+from src.utils.image_quality import filter_informative_images
 
 with open("./configs/config.yaml", 'r', encoding='utf-8') as f:
     config_dict = yaml.safe_load(f)
@@ -51,7 +52,11 @@ def _build_step_evidence(documents, mode: str) -> Dict:
             if desc and desc not in proxy_descriptions:
                 proxy_descriptions.append(str(desc)[:500])
 
-        for path in payload.get("extracted_crop_paths", []) or []:
+        valid_paths, _ = filter_informative_images(
+            payload.get("extracted_crop_paths", []),
+            payload.get("proxy_descriptions", []),
+        )
+        for path in valid_paths:
             if path and path not in image_paths:
                 image_paths.append(path)
 

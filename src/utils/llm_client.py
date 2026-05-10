@@ -1,14 +1,18 @@
-from openai import OpenAI
 import os
 import re
 import base64
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        return False
 load_dotenv()          # 读取 .env 文件，将内容注入 os.environ
 
 class LLMClient:
     def __init__(self, api_config: dict):
         base_url = api_config.get("base_url")
         api_key = os.getenv("LLM_API_KEY")
+        self.base_url = base_url
         
         # 支持区分不同的模型用途
         self.reasoning_model = api_config.get("reasoning_model", "gpt-4o-mini")
@@ -17,7 +21,121 @@ class LLMClient:
         if not api_key:
             raise ValueError("❌ LLM API Key 未配置！请在 .env 中设置 LLM_API_KEY")
 
+        from openai import OpenAI
         self.client = OpenAI(api_key=api_key, base_url=base_url)
+
+    def _safe_text(self, value) -> str:
+        return str(value).encode('utf-8', 'replace').decode('utf-8')
+
+    def _message_to_dict(self, message) -> dict:
+        if hasattr(message, "model_dump"):
+            data = message.model_dump(exclude_none=True)
+        elif isinstance(message, dict):
+            data = dict(message)
+        else:
+            data = {
+                "role": getattr(message, "role", "assistant"),
+                "content": getattr(message, "content", None),
+                "tool_calls": getattr(message, "tool_calls", None),
+            }
+
+        tool_calls = data.get("tool_calls") or []
+        normalized_tool_calls = []
+        for call in tool_calls:
+            if hasattr(call, "model_dump"):
+                call_data = call.model_dump(exclude_none=True)
+            else:
+                call_data = dict(call)
+            function_data = call_data.get("function") or {}
+            if hasattr(function_data, "model_dump"):
+                function_data = function_data.model_dump(exclude_none=True)
+            normalized_tool_calls.append({
+                "id": call_data.get("id"),
+                "type": call_data.get("type", "function"),
+                "function": {
+                    "name": function_data.get("name"),
+                    "arguments": function_data.get("arguments", "{}"),
+                },
+            })
+
+        return {
+            "role": data.get("role", "assistant"),
+            "content": data.get("content") or "",
+            "tool_calls": normalized_tool_calls,
+        }
+
+    def _sanitize_tool_messages(self, messages: list) -> list:
+        sanitized = []
+        for message in messages or []:
+            role = message.get("role")
+            if role == "assistant":
+                assistant_message = {
+                    "role": "assistant",
+                    "content": self._safe_text(message.get("content", "")),
+                }
+                if message.get("tool_calls"):
+                    assistant_message["tool_calls"] = message["tool_calls"]
+                sanitized.append(assistant_message)
+            elif role == "tool":
+                sanitized.append({
+                    "role": "tool",
+                    "tool_call_id": message["tool_call_id"],
+                    "content": self._safe_text(message.get("content", "")),
+                })
+            else:
+                sanitized.append({
+                    "role": role or "user",
+                    "content": self._safe_text(message.get("content", "")),
+                })
+        return sanitized
+
+    def chat_with_tools(
+        self,
+        system_prompt: str,
+        messages: list,
+        tools: list,
+        tool_choice: str = "auto",
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+    ) -> dict:
+        """Call an OpenAI-compatible chat model with native tool calling enabled."""
+        if not tools:
+            raise ValueError("tool calling requires at least one tool schema")
+
+        api_messages = [
+            {"role": "system", "content": self._safe_text(system_prompt)}
+        ] + self._sanitize_tool_messages(messages)
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.reasoning_model,
+                messages=api_messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                "LLM tool calling request failed. "
+                f"model={self.reasoning_model}, base_url={self.base_url}, error={e}"
+            ) from e
+
+        choices = getattr(response, "choices", None) or []
+        if not choices or choices[0] is None:
+            raise RuntimeError(
+                "LLM tool calling response did not contain choices. "
+                f"model={self.reasoning_model}, base_url={self.base_url}"
+            )
+
+        message = getattr(choices[0], "message", None)
+        if message is None:
+            raise RuntimeError(
+                "LLM tool calling response did not contain an assistant message. "
+                f"model={self.reasoning_model}, base_url={self.base_url}"
+            )
+
+        return self._message_to_dict(message)
 
     def _encode_image(self, image_path: str) -> str:
         """将本地图片转换为 Base64 字符串"""
@@ -31,8 +149,8 @@ class LLMClient:
         # 🛡️ 终极物理净化装甲：抹杀终端粘贴进来的所有幽灵字符
         # ==========================================
         # 使用 replace 替换掉无法识别的字符，绝不能让乱码流进字典！
-        safe_sys = str(system_prompt).encode('utf-8', 'replace').decode('utf-8')
-        safe_user = str(user_prompt).encode('utf-8', 'replace').decode('utf-8')
+        safe_sys = self._safe_text(system_prompt)
+        safe_user = self._safe_text(user_prompt)
 
         # ==========================================
         # 适配 ：动态数据结构（防止纯文本模型崩溃）

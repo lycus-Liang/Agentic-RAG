@@ -2,10 +2,11 @@ import os
 import sys
 import yaml
 from typing import Dict
-from src.retrieval.searcher import Searcher
 from src.agent.state import GraphState
 from src.agent.router import resolve_step_query_with_context
+from src.agent.retrieval_tools import get_searcher
 from src.utils.llm_client import LLMClient
+from src.utils.image_quality import filter_informative_images
 
 # 全局加载配置与提示词
 with open("./configs/config.yaml", 'r', encoding='utf-8') as f:
@@ -13,17 +14,23 @@ with open("./configs/config.yaml", 'r', encoding='utf-8') as f:
 with open("./configs/prompts.yaml", 'r', encoding='utf-8') as f:
     prompts_dict = yaml.safe_load(f)
 
-_searcher = None
-llm_client = LLMClient(config_dict.get("online", {}).get("llm_api", {}))
+_llm_client = None
 gen_prompts = prompts_dict.get("agent_generator", {})
 
 
-def get_searcher() -> Searcher:
-    """延迟加载检索模型，避免 Streamlit 启动阶段因 HuggingFace 下载失败而崩溃。"""
-    global _searcher
-    if _searcher is None:
-        _searcher = Searcher(config_dict=config_dict)
-    return _searcher
+def get_llm_client():
+    global _llm_client
+    if _llm_client is None:
+        _llm_client = LLMClient(config_dict.get("online", {}).get("llm_api", {}))
+    return _llm_client
+
+
+class _LazySearcher:
+    def search(self, *args, **kwargs):
+        return get_searcher().search(*args, **kwargs)
+
+
+searcher = _LazySearcher()
 
 
 def _format_retrieval_error(error: Exception) -> str:
@@ -163,7 +170,10 @@ def generate_node(state: GraphState) -> Dict:
             for i, doc in enumerate(result.get("documents", []), start=1):
                 payload = doc.payload
                 context_text += f"[来源 {i} | 第 {payload.get('page_num')} 页]:\n{payload.get('markdown_text', '')}\n"
-                crops = payload.get("extracted_crop_paths", [])
+                crops, _ = filter_informative_images(
+                    payload.get("extracted_crop_paths", []),
+                    payload.get("proxy_descriptions", []),
+                )
                 for crop in crops:
                     if os.path.exists(crop) and len(image_paths) < 3:
                         image_paths.append(crop)
@@ -171,7 +181,10 @@ def generate_node(state: GraphState) -> Dict:
         for i, doc in enumerate(documents):
             payload = doc.payload
             context_text += f"\n[来源 {i+1} | 第 {payload.get('page_num')} 页]:\n{payload.get('markdown_text', '')}\n"
-            crops = payload.get("extracted_crop_paths", [])
+            crops, _ = filter_informative_images(
+                payload.get("extracted_crop_paths", []),
+                payload.get("proxy_descriptions", []),
+            )
             for crop in crops:
                 if os.path.exists(crop) and len(image_paths) < 3:
                     image_paths.append(crop)
@@ -185,7 +198,7 @@ def generate_node(state: GraphState) -> Dict:
     output_text = ""
     try:
         # 开启 stream=True，拿到生成器
-        chunk_generator = llm_client.generate(
+        chunk_generator = get_llm_client().generate(
             system_prompt=sys_prompt,
             user_prompt=user_prompt,
             image_paths=image_paths,
@@ -208,7 +221,7 @@ def generate_node(state: GraphState) -> Dict:
     if not output_text.strip():
         print("⚠️ 流式生成未返回正文，自动切换为非流式生成兜底。")
         try:
-            output_text = llm_client.generate(
+            output_text = get_llm_client().generate(
                 system_prompt=sys_prompt,
                 user_prompt=user_prompt,
                 image_paths=image_paths,
@@ -217,7 +230,7 @@ def generate_node(state: GraphState) -> Dict:
             )
             if not str(output_text).strip() and image_paths:
                 print("⚠️ 带图非流式生成仍为空，改用纯文本非流式生成。")
-                output_text = llm_client.generate(
+                output_text = get_llm_client().generate(
                     system_prompt=sys_prompt,
                     user_prompt=user_prompt,
                     image_paths=[],
@@ -226,7 +239,7 @@ def generate_node(state: GraphState) -> Dict:
                 )
         except Exception as e:
             print(f"⚠️ 非流式生成失败 ({e})，最后尝试纯文本生成。")
-            output_text = llm_client.generate(
+            output_text = get_llm_client().generate(
                 system_prompt=sys_prompt,
                 user_prompt=user_prompt,
                 image_paths=[],

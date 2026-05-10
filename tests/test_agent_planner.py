@@ -5,6 +5,7 @@ from pathlib import Path
 os.environ.setdefault("LLM_API_KEY", "test-key")
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+from src.agent import router
 from src.agent.router import (
     _basic_plan_issues,
     _format_dependency_query_hint,
@@ -218,6 +219,52 @@ def test_dependency_query_hint_is_merged_into_dependent_query():
     assert "step_1" not in query
 
 
+def test_repaired_plan_separates_original_and_final_issues():
+    old_validator = router._validate_plan_with_llm
+    old_repairer = router._repair_plan_with_llm
+    try:
+        router._validate_plan_with_llm = lambda question, plan, text_only=False: {
+            "valid": True,
+            "issues": [],
+        }
+        router._repair_plan_with_llm = lambda question, plan, issues, text_only=False: [
+            {
+                "id": "step_1",
+                "sub_question": "确定目标对象",
+                "mode": "text",
+                "depends_on": [],
+                "purpose": "确定对象",
+            },
+            {
+                "id": "step_2",
+                "sub_question": "基于 step_1 的证据，查询目标属性",
+                "mode": "text",
+                "depends_on": ["step_1"],
+                "purpose": "查询属性",
+            },
+        ]
+
+        raw_plan = [
+            {
+                "id": "step_1",
+                "sub_question": "《马说》的作者的祖籍是什么？",
+                "mode": "text",
+                "depends_on": [],
+                "purpose": "查询作者祖籍",
+            }
+        ]
+        result = router._validate_or_repair_plan("《马说》的作者的祖籍是什么？", raw_plan)
+    finally:
+        router._validate_plan_with_llm = old_validator
+        router._repair_plan_with_llm = old_repairer
+
+    validation = result["validation"]
+    assert validation["repaired"] is True
+    assert validation["issues"] == []
+    assert validation["final_issues"] == []
+    assert "single_step_for_likely_multi_hop_question" in validation["pre_repair_issues"]
+
+
 if __name__ == "__main__":
     test_normalize_plan_keeps_valid_steps()
     test_normalize_plan_downgrades_to_text_only()
@@ -229,4 +276,5 @@ if __name__ == "__main__":
     test_author_article_tail_question_is_flagged_for_repair()
     test_prior_context_prefers_structured_evidence_summary()
     test_dependency_query_hint_is_merged_into_dependent_query()
+    test_repaired_plan_separates_original_and_final_issues()
     print("test_agent_planner passed")

@@ -23,6 +23,7 @@ from src.storage.point_builder import PointBuilder
 
 from src.utils.logger import logger
 from src.utils.cache import run_with_cache
+from src.utils.image_quality import filter_informative_images
 
 PARSER_REGISTRY = {
     "json": parse_json_corpus,
@@ -39,6 +40,15 @@ def get_config() -> dict:
         raise FileNotFoundError(f"❌ 找不到配置文件: {config_path}")
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
+
+
+def create_qdrant_manager(config: dict) -> QdrantManager:
+    db_config = config.get("offline", {}).get("database", {})
+    return QdrantManager(
+        host=db_config.get("host", "localhost"),
+        port=db_config.get("port", 6333),
+        timeout=db_config.get("timeout", 120),
+    )
 
 def build_text_pipeline(file_path: str, file_type: str, workers: dict, db_manager: QdrantManager, config: dict):
     """
@@ -110,8 +120,8 @@ def build_text_directory(dir_path: str, file_type: str, clear_db: bool = False):
     workers = {
         "text": TextWorker(),
     }
-    db_manager = QdrantManager()
     config = get_config()
+    db_manager = create_qdrant_manager(config)
     collection_name = config.get("offline", {}).get("database", {}).get("collection_name", "omni_rag_docs")
     
     if clear_db:
@@ -197,7 +207,7 @@ def build_pdf_pipeline(pdf_path: str, workers: dict, db_manager: QdrantManager, 
     print("✅ 双线特征提取完毕！")
     
     # 4. 局部图像代理翻译 & 数据组装
-    print("\n🚀 [阶段三] VLM 翻译与终极节点组装...")
+    print("\n🚀 [阶段三] VLM 翻译、图像清洗与终极节点组装...")
     step4_cache = os.path.join(doc_work_dir, "step4_final_points.pkl")
 
     def build_points_logic():
@@ -206,6 +216,8 @@ def build_pdf_pipeline(pdf_path: str, workers: dict, db_manager: QdrantManager, 
             page_num = records[idx]["page_number"]
             extracted_crops = payload.get("extracted_crops", [])
             proxy_descriptions = []
+            dense_vec = payload["dense_vec"]
+            sparse_vec = payload["sparse_vec"]
             
             if extracted_crops:
                 proxy_descriptions = proxy_worker.generate_proxy_batch(
@@ -213,13 +225,34 @@ def build_pdf_pipeline(pdf_path: str, workers: dict, db_manager: QdrantManager, 
                     batch_size=4, 
                     page_num=page_num 
                 )
+                extracted_crops, proxy_descriptions = filter_informative_images(
+                    extracted_crops,
+                    proxy_descriptions,
+                    require_description=True,
+                )
+                if proxy_descriptions:
+                    proxy_context = "\n\n[图片代理描述]\n" + "\n".join(
+                        desc for desc in proxy_descriptions if str(desc).strip()
+                    )
+                    searchable_text = f"{payload['markdown']}{proxy_context}"
+                    augmented_embeddings = text_worker.embed_model.encode(
+                        [searchable_text],
+                        return_dense=True,
+                        return_sparse=True,
+                        return_colbert_vecs=False,
+                    )
+                    dense_vec = augmented_embeddings["dense_vecs"][0].tolist()
+                    sparse_vec = {
+                        str(k): float(v)
+                        for k, v in augmented_embeddings["lexical_weights"][0].items()
+                    }
                 
             point = PointBuilder.build_point(
                 source_doc=doc_name, 
                 page_num=page_num, 
                 markdown_text=payload["markdown"],
-                dense_vec=payload["dense_vec"], 
-                sparse_vec=payload["sparse_vec"],
+                dense_vec=dense_vec,
+                sparse_vec=sparse_vec,
                 vision_multivec=vision_embeddings[idx], 
                 crop_paths=extracted_crops,
                 proxy_descriptions=proxy_descriptions
@@ -253,8 +286,8 @@ def build_pdf_directory(dir_path: str, clear_db: bool = False):
         "text": TextWorker(),
         "proxy": ProxyWorker()
     }
-    db_manager = QdrantManager()
     config = get_config()
+    db_manager = create_qdrant_manager(config)
     collection_name = config.get("offline", {}).get("database", {}).get("collection_name", "omni_rag_docs")
     # 清理逻辑
     if clear_db:
@@ -360,8 +393,8 @@ if __name__ == "__main__":
                         "text": TextWorker(),
                         "proxy": ProxyWorker()
                     }
-                    db_manager = QdrantManager()
                     config = get_config()
+                    db_manager = create_qdrant_manager(config)
                     collection_name = config.get("offline", {}).get("database", {}).get("collection_name", "omni_rag_docs")
                     # 清理逻辑
                     if args.clear:
@@ -388,8 +421,8 @@ if __name__ == "__main__":
                     workers = {
                         "text": TextWorker(),
                     }
-                    db_manager = QdrantManager()
                     config = get_config()
+                    db_manager = create_qdrant_manager(config)
                     collection_name = config.get("offline", {}).get("database", {}).get("collection_name", "omni_rag_docs")
                     # 清理逻辑
                     if args.clear:
