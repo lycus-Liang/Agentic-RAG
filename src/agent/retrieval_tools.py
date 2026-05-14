@@ -22,6 +22,8 @@ TOOL_DESCRIPTIONS = {
     "retrieve_hybrid": "Search both text and visual routes when the best modality is uncertain or evidence may be multimodal.",
 }
 
+SEARCH_STYLES = {"auto", "exact", "semantic", "expanded"}
+
 MAX_TOOL_TEXT_CHARS = 800
 MAX_TOOL_PROXY_CHARS = 400
 
@@ -58,6 +60,15 @@ def build_retrieval_tool_schemas(text_only: bool = False) -> List[Dict[str, Any]
                         "query": {
                             "type": "string",
                             "description": "The concise search query to send to the retrieval index.",
+                        },
+                        "search_style": {
+                            "type": "string",
+                            "enum": ["auto", "exact", "semantic", "expanded"],
+                            "description": (
+                                "Retrieval style chosen by the agent. auto follows config; "
+                                "exact favors precise lexical matching; semantic favors conceptual matching; "
+                                "expanded allows query expansion only when enabled by config."
+                            ),
                         }
                     },
                     "required": ["query"],
@@ -103,14 +114,31 @@ def run_retrieval_tool(
     if not query:
         raise ValueError(f"{tool_name} requires a non-empty query")
 
+    search_style = str((arguments or {}).get("search_style", "auto")).strip().lower() or "auto"
+    if search_style not in SEARCH_STYLES:
+        search_style = "auto"
+
     mode = "text" if text_only else TOOL_TO_MODE[tool_name]
-    documents = get_searcher().search(query, text_only=text_only, retrieval_mode=mode)
+    searcher = get_searcher()
+    documents = searcher.search(
+        query,
+        text_only=text_only,
+        retrieval_mode=mode,
+        search_style=search_style,
+    )
     formatted_docs = [_format_document_for_tool(doc) for doc in documents]
+    metadata = getattr(searcher, "last_search_metadata", {}) or {}
 
     return {
         "tool_name": tool_name,
         "query": query,
         "mode": mode,
+        "search_style": search_style,
+        "effective_search_style": metadata.get("effective_search_style", search_style),
+        "effective_strategies": metadata.get("effective_strategies", {}),
+        "routes": metadata.get("routes", []),
+        "fusion": metadata.get("fusion", ""),
+        "strategy_notes": metadata.get("notes", []),
         "hit_count": len(documents),
         "documents": formatted_docs,
     }, documents

@@ -139,6 +139,7 @@ def _step_result_from_tool(
 ) -> Dict[str, Any]:
     mode = result.get("mode", "hybrid")
     query = result.get("query", "")
+    search_style = result.get("search_style", "auto")
     evidence_summary = _build_evidence_summary(result)
     step = dict(planned_step or {})
     step.setdefault("id", f"step_{tool_index}")
@@ -156,6 +157,11 @@ def _step_result_from_tool(
             "tool_name": result.get("tool_name"),
             "query": query,
             "mode": mode,
+            "search_style": search_style,
+            "effective_search_style": result.get("effective_search_style", search_style),
+            "effective_strategies": result.get("effective_strategies", {}),
+            "routes": result.get("routes", []),
+            "fusion": result.get("fusion", ""),
             "hit_count": result.get("hit_count", 0),
         }],
         "mode": mode,
@@ -163,6 +169,11 @@ def _step_result_from_tool(
         "documents": raw_documents,
         "evidence": {
             "mode": mode,
+            "search_style": search_style,
+            "effective_search_style": result.get("effective_search_style", search_style),
+            "effective_strategies": result.get("effective_strategies", {}),
+            "routes": result.get("routes", []),
+            "fusion": result.get("fusion", ""),
             "hit_count": result.get("hit_count", 0),
             "image_paths": _collect_image_paths(raw_documents),
             "image_count": len(_collect_image_paths(raw_documents)),
@@ -295,6 +306,12 @@ def tool_call_agent_node(state: GraphState) -> Dict:
             "mode": result.get("mode", "hybrid"),
             "actual_query": result.get("query", ""),
             "actual_mode": result.get("mode", "hybrid"),
+            "search_style": result.get("search_style", "auto"),
+            "effective_search_style": result.get("effective_search_style", result.get("search_style", "auto")),
+            "effective_strategies": result.get("effective_strategies", {}),
+            "routes": result.get("routes", []),
+            "fusion": result.get("fusion", ""),
+            "strategy_notes": result.get("strategy_notes", []),
             "hit_count": result.get("hit_count", 0),
         }
         tool_trace.append(trace_item)
@@ -303,11 +320,13 @@ def tool_call_agent_node(state: GraphState) -> Dict:
                 f"  🧰 step {step_index}/{len(plan)} {step.get('id', '')}: "
                 f"{tool_name} | planned={planned_mode}:{planned_query} | "
                 f"actual={result.get('mode', 'hybrid')}:{result.get('query', '')} | "
+                f"style={result.get('search_style', 'auto')}->{result.get('effective_search_style', result.get('search_style', 'auto'))} | "
                 f"hits={result.get('hit_count', 0)}"
             )
         agent_trace.append(
             f"步骤 {step_index}/{len(plan)} tool_call: {tool_name}, "
             f"planned_mode={planned_mode}, query={result.get('query', '')}, "
+            f"style={result.get('search_style', 'auto')}, "
             f"hits={result.get('hit_count', 0)}"
         )
 

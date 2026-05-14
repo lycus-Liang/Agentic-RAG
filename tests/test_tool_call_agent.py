@@ -49,10 +49,23 @@ def fake_run_retrieval_tool(tool_name, arguments, text_only=False):
         "retrieve_vision": "vision",
         "retrieve_hybrid": "hybrid",
     }[tool_name]
+    search_style = arguments.get("search_style", "auto")
     return {
         "tool_name": tool_name,
         "query": arguments["query"],
         "mode": mode,
+        "search_style": search_style,
+        "effective_search_style": search_style,
+        "effective_strategies": {
+            "use_dense": search_style != "exact",
+            "use_sparse": True,
+            "use_hyde": search_style == "expanded",
+            "use_vision": mode in {"vision", "hybrid"},
+            "use_reranker": True,
+        },
+        "routes": ["bge_sparse"],
+        "fusion": "RRF",
+        "strategy_notes": [],
         "hit_count": 1,
         "documents": [{
             "source_doc": "sample.pdf",
@@ -103,7 +116,9 @@ def two_step_plan():
 
 def test_tool_call_agent_executes_single_planned_step():
     llm = FakeLLM([
-        {"role": "assistant", "content": "", "tool_calls": [tool_call()]},
+        {"role": "assistant", "content": "", "tool_calls": [
+            tool_call(arguments='{"query":"原文锚点","search_style":"exact"}')
+        ]},
     ])
     saved = with_fakes(llm)
     try:
@@ -123,6 +138,10 @@ def test_tool_call_agent_executes_single_planned_step():
     assert result["tool_trace"][0]["step_id"] == "step_1"
     assert result["tool_trace"][0]["planned_mode"] == "text"
     assert result["tool_trace"][0]["planned_query"] == "找到原文锚点"
+    assert result["tool_trace"][0]["search_style"] == "exact"
+    assert result["tool_trace"][0]["effective_search_style"] == "exact"
+    assert result["tool_trace"][0]["effective_strategies"]["use_sparse"] is True
+    assert result["tool_trace"][0]["fusion"] == "RRF"
     assert len(llm.calls) == 1
 
 
@@ -134,7 +153,7 @@ def test_tool_call_agent_executes_multi_step_plan():
             "content": "",
             "tool_calls": [tool_call(
                 name="retrieve_hybrid",
-                arguments='{"query":"竹子 图片"}',
+                arguments='{"query":"竹子 图片","search_style":"semantic"}',
                 call_id="call-2",
             )],
         },
@@ -153,6 +172,7 @@ def test_tool_call_agent_executes_multi_step_plan():
     assert len(result["step_results"]) == 2
     assert [trace["step_id"] for trace in result["tool_trace"]] == ["step_1", "step_2"]
     assert result["tool_trace"][1]["tool_name"] == "retrieve_hybrid"
+    assert result["tool_trace"][1]["search_style"] == "semantic"
     assert "有效文本证据" in result["step_results"][1]["dependency_context"]
     assert len(llm.calls) == 2
 

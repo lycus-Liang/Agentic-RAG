@@ -41,12 +41,24 @@ def render_tool_trace(tool_trace):
             f"{idx}. `{step_label}` -> `{trace.get('tool_name', '')}` | "
             f"planned=`{trace.get('planned_mode', '')}` | "
             f"actual=`{trace.get('actual_mode', trace.get('mode', ''))}` | "
+            f"style=`{trace.get('search_style', 'auto')}->{trace.get('effective_search_style', trace.get('search_style', 'auto'))}` | "
             f"hits=`{trace.get('hit_count', 0)}`"
         )
         st.caption(
             f"planned query: {trace.get('planned_query', '')} | "
             f"actual query: {trace.get('actual_query', trace.get('query', ''))}"
         )
+        strategies = trace.get("effective_strategies", {}) or {}
+        if strategies:
+            st.caption(
+                "effective strategies: "
+                + ", ".join([f"{key}={value}" for key, value in strategies.items()])
+                + f" | routes={', '.join(trace.get('routes', []) or []) or 'none'}"
+                + f" | fusion={trace.get('fusion', '') or 'n/a'}"
+            )
+        notes = trace.get("strategy_notes", []) or []
+        if notes:
+            st.caption("strategy notes: " + ", ".join(notes))
 
 # ==========================================
 # 🤖 核心引擎初始化 (缓存机制，避免每次点击重新加载)
@@ -194,6 +206,7 @@ if prompt := st.chat_input("请输入您的问题"):
                                     f"`{trace.get('planned_query', '')}`，"
                                     f"实际 `{trace.get('tool_name', '')}` / "
                                     f"`{trace.get('actual_query', trace.get('query', ''))}`，"
+                                    f"风格 `{trace.get('search_style', 'auto')}->{trace.get('effective_search_style', trace.get('search_style', 'auto'))}`，"
                                     f"命中 {trace.get('hit_count', 0)} 条。"
                                 )
                     elif key == "generate":

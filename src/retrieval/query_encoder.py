@@ -12,7 +12,7 @@ import os
 import yaml
 import json
 import torch
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 from FlagEmbedding import BGEM3FlagModel
 from src.utils.llm_client import LLMClient
 from colpali_engine.models import ColQwen2, ColQwen2Processor
@@ -101,7 +101,13 @@ class QueryEncoder:
             return ""
 
     @torch.no_grad()
-    def encode(self, query: str, text_only: bool = False, retrieval_mode: str = "hybrid") -> Dict[str, Any]:
+    def encode(
+        self,
+        query: str,
+        text_only: bool = False,
+        retrieval_mode: str = "hybrid",
+        use_hyde_override: Optional[bool] = None,
+    ) -> Dict[str, Any]:
         """将自然语言转化为三路召回向量钥匙"""
         retrieval_mode = (retrieval_mode or "hybrid").lower()
         if retrieval_mode not in {"text", "vision", "hybrid"}:
@@ -117,7 +123,8 @@ class QueryEncoder:
         # 1. HyDE 拦截与处理
         # ==========================================
         search_query_for_text = query
-        if use_text_encoder and self.use_hyde:
+        use_hyde = self.use_hyde if use_hyde_override is None else bool(use_hyde_override)
+        if use_text_encoder and use_hyde:
             hyde_expansion = self._get_hyde_expansion(query)
             if hyde_expansion: # 如果生成成功或命中缓存
                 search_query_for_text = f"{query}。{hyde_expansion}"
