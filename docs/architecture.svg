@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050" role="img" aria-labelledby="title desc">
   <title id="title">Omni-Modal Agentic RAG Architecture</title>
-  <desc id="desc">Architecture diagram for the current omni-modal agentic RAG system, including online workflow, retrieval tools, search style control, retrieval backend, and offline indexing pipeline.</desc>
+  <desc id="desc">Architecture diagram for the current omni-modal agentic RAG system, including agent memory, online workflow, retrieval tools, search style control, retrieval backend, and offline indexing pipeline.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
@@ -27,7 +27,7 @@
 
   <rect class="bg" x="0" y="0" width="1600" height="1050"/>
   <text x="60" y="58" font-family="Arial, sans-serif" font-size="32" font-weight="700" fill="#0f172a">Omni-Modal Agentic RAG Architecture</text>
-  <text x="60" y="88" class="small">Current implementation: planning, native tool calls, modality routing, search_style control, Qdrant RRF fusion, optional reranking, and offline indexing.</text>
+  <text x="60" y="88" class="small">Current implementation: agent memory, planning, native tool calls, modality routing, search_style control, Qdrant RRF fusion, optional reranking, and offline indexing.</text>
 
   <!-- Entry and config -->
   <rect class="group" x="45" y="125" width="330" height="235"/>
@@ -54,6 +54,9 @@
   <rect class="box box-purple" x="555" y="190" width="260" height="58"/>
   <text x="685" y="214" text-anchor="middle" class="label">LangGraph Workflow</text>
   <text x="685" y="236" text-anchor="middle" class="small">build_agentic_rag()</text>
+
+  <rect class="note" x="455" y="258" width="460" height="24"/>
+  <text x="685" y="275" text-anchor="middle" class="tiny">retrieve_memory_node runs before planning; update_memory_node runs after generation</text>
 
   <rect class="box box-purple" x="555" y="290" width="260" height="62"/>
   <text x="685" y="315" text-anchor="middle" class="label">plan_query_node</text>
@@ -139,12 +142,17 @@
   <text x="725" y="914" text-anchor="middle" class="label">Qdrant Collection</text>
   <text x="725" y="934" text-anchor="middle" class="small">payloads, vectors, crops, proxy descriptions</text>
 
-  <!-- Debug output -->
+  <!-- Memory and debug output -->
   <rect class="group" x="1000" y="820" width="535" height="150"/>
-  <text x="1025" y="857" class="group-title">Debug / UI Trace</text>
-  <rect class="box box-slate" x="1040" y="885" width="455" height="58"/>
-  <text x="1268" y="909" text-anchor="middle" class="label">Show Retrieval Process</text>
-  <text x="1268" y="931" text-anchor="middle" class="small">tool, mode, search_style, effective routes, fusion, hit count</text>
+  <text x="1025" y="857" class="group-title">Agent Memory / Debug</text>
+  <rect class="box box-amber" x="1040" y="880" width="220" height="68"/>
+  <text x="1150" y="904" text-anchor="middle" class="label">SQLite Experience Library</text>
+  <text x="1150" y="926" text-anchor="middle" class="small">profile / insight / utility</text>
+  <text x="1150" y="944" text-anchor="middle" class="tiny">add / merge / keep / prune</text>
+  <rect class="box box-slate" x="1285" y="880" width="210" height="68"/>
+  <text x="1390" y="904" text-anchor="middle" class="label">UI Trace + Feedback</text>
+  <text x="1390" y="926" text-anchor="middle" class="small">memory_trace, tool_trace</text>
+  <text x="1390" y="944" text-anchor="middle" class="tiny">helpful / not helpful</text>
 
   <!-- Arrows -->
   <path class="line" d="M 205 248 L 205 280"/>
@@ -165,7 +173,10 @@
   <path class="line" d="M 1250 402 L 1250 445"/>
   <path class="line" d="M 1250 517 L 1268 555"/>
   <path class="line" d="M 1268 607 C 1268 650 900 556 815 556"/>
-  <path class="line-dashed" d="M 1268 607 C 1300 675 1300 820 1268 885"/>
+  <path class="line-dashed" d="M 1268 607 C 1300 675 1300 820 1150 880"/>
+  <path class="line-dashed" d="M 1040 914 C 930 850 900 430 815 430"/>
+  <path class="line-dashed" d="M 685 587 C 750 740 880 914 1040 914"/>
+  <path class="line-dashed" d="M 1390 880 C 1390 760 1220 725 1150 880"/>
 
   <path class="line" d="M 260 811 L 310 811"/>
   <path class="line" d="M 490 811 L 540 811"/>

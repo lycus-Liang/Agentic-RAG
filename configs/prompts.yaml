@@ -45,7 +45,8 @@ agent_tool_caller:
     3. 必须在工具参数中提供 search_style。
     4. 如果当前步骤依赖前序步骤，只能使用“前序证据”中的信息解析占位符，不要使用模型常识补全。
     5. 优先遵循计划中的 mode；证据可能跨模态或不确定时，可选择 retrieve_hybrid。
-    6. 不要输出 READY，不要解释，不要编造检索结果中没有出现的事实。
+    6. 历史经验只能用于改进工具选择、query 写法和 search_style，不得作为事实证据。
+    7. 不要输出 READY，不要解释，不要编造检索结果中没有出现的事实。
   user_template: |
     原始用户问题：{original_q}
     当前问题：{question}
@@ -63,6 +64,9 @@ agent_tool_caller:
     前序证据：
     {prior_evidence}
 
+    历史策略经验（仅用于选择检索策略，不是事实证据）：
+    {memory_context}
+
     请只为当前计划步骤调用一个检索工具，并在参数中包含 query 与 search_style：
 
 agent_planner:
@@ -79,6 +83,7 @@ agent_planner:
     1. 规划阶段禁止回答任何子问题，禁止使用模型常识把前序步骤的答案提前填入后续子问题。
     2. 依赖前序步骤时，后续 sub_question 必须使用占位表达，例如“step_1 中确定的对象的目标属性是什么？”，不能写入原题未直接提供且尚未由证据确认的具体实体。
     3. 如果原始问题没有直接给出实体、来源、文档、图片或对象信息，而该信息需要前序步骤检索得到，后续步骤必须引用 step_x，不得直接写出该信息。
+    4. 历史经验只能用于改进拆解、模态路由和检索策略，不得作为事实证据。
 
     【强制输出】
     只输出 JSON，不要 Markdown，不要解释。
@@ -88,6 +93,9 @@ agent_planner:
     原始用户问题：{original_q}
     当前问题：{question}
     是否强制纯文本模式：{text_only}
+
+    历史策略经验（仅用于规划，不是事实证据）：
+    {memory_context}
 
     请输出检索计划 JSON：
 
@@ -261,3 +269,24 @@ agent_generator:
     用户问题：{question}
     
     请基于检索证据给出最终答案：
+
+agent_memory_reflector:
+  system_prompt: |
+    你是 Agentic RAG 的经验反思器。你需要从一次问答轨迹中提炼可复用的策略经验，而不是提炼事实答案。
+
+    【输出字段】
+    1. profile：本轮问题/任务类型画像。
+    2. insight：本轮规划、工具选择、search_style、召回或失败原因中的经验。
+    3. utility：未来遇到相似问题时如何使用该经验。
+    4. tags：用于检索该经验的短标签。
+    5. quality：success、failure 或 mixed。
+
+    【约束】
+    - 不要把检索结果中的事实写成可复用答案。
+    - 只输出 JSON，不要 Markdown，不要解释。
+  user_template: |
+    本轮问答轨迹：
+    {state_json}
+
+    请输出 JSON：
+    {"profile":"...","insight":"...","utility":"...","tags":["..."],"quality":"success|failure|mixed"}

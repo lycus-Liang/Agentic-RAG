@@ -15,6 +15,19 @@ from src.agent.router import (
 )
 
 
+class FakePlannerLLM:
+    def __init__(self):
+        self.calls = []
+
+    def generate(self, system_prompt, user_prompt, temperature=0.0):
+        self.calls.append({
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "temperature": temperature,
+        })
+        return '{"steps":[{"id":"step_1","sub_question":"查找目标对象","mode":"text","depends_on":[],"purpose":"定位对象"}]}'
+
+
 def test_normalize_plan_keeps_valid_steps():
     raw_plan = {
         "steps": [
@@ -265,6 +278,33 @@ def test_repaired_plan_separates_original_and_final_issues():
     assert "single_step_for_likely_multi_hop_question" in validation["pre_repair_issues"]
 
 
+def test_plan_query_includes_memory_context_in_prompt():
+    old_llm = router._llm_client
+    old_validator = router._validate_or_repair_plan
+    fake_llm = FakePlannerLLM()
+    try:
+        router._llm_client = fake_llm
+        router._validate_or_repair_plan = lambda question, plan, text_only=False: {
+            "plan": plan,
+            "validation": {
+                "valid": True,
+                "issues": [],
+                "pre_repair_issues": [],
+                "final_issues": [],
+                "repaired": False,
+            },
+        }
+        router.plan_query_node({
+            "question": "问题",
+            "memory_context": "历史经验：相似问题需要先查对象",
+        })
+    finally:
+        router._llm_client = old_llm
+        router._validate_or_repair_plan = old_validator
+
+    assert "历史经验：相似问题需要先查对象" in fake_llm.calls[0]["user_prompt"]
+
+
 if __name__ == "__main__":
     test_normalize_plan_keeps_valid_steps()
     test_normalize_plan_downgrades_to_text_only()
@@ -277,4 +317,5 @@ if __name__ == "__main__":
     test_prior_context_prefers_structured_evidence_summary()
     test_dependency_query_hint_is_merged_into_dependent_query()
     test_repaired_plan_separates_original_and_final_issues()
+    test_plan_query_includes_memory_context_in_prompt()
     print("test_agent_planner passed")

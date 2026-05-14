@@ -20,6 +20,13 @@ class GraphState(TypedDict, total=False):
     ui_stream_callback: Any        # 专门为 UI 流式输出准备的回调钩子
     text_only: bool                # 应对纯文本检索
     debug: bool                    # 是否输出/返回工具检索调试轨迹
+    session_id: str                # 会话/用户标识，用于隔离 agent memory
+    memory_context: str            # 检索到的历史策略经验，不能作为事实证据
+    retrieved_memories: List[Dict[str, Any]]
+    memory_trace: List[str]
+    memory_record_id: str
+    memory_action: str
+    feedback_score: float
     retrieval_plan: List[Dict[str, Any]]  # 子问题、多跳路径与模态路由计划
     plan_validation: Dict[str, Any]
     current_step_index: int        # 当前执行到第几个计划步骤

@@ -68,3 +68,13 @@ online:
     use_agentic_loop: true   # 开启后启用“规划 -> 多跳检索 -> 步骤评估 -> 综合生成”的 Agentic RAG
     max_plan_steps: 4        # 单次问题最多拆解出的检索步骤数
     max_retries: 2           # 单个检索步骤允许 fallback 重搜的最大次数
+
+  # Agent 经验记忆系统：记录成功/失败检索轨迹，用于后续规划和工具选择
+  agent_memory:
+    enabled: true
+    storage_path: "./data/memory/agent_memory.sqlite3"
+    retrieve_top_k: 3
+    min_reward_to_reuse: 0.3
+    write_after_chat: true
+    use_llm_reflection: true
+    max_experiences: 1000

@@ -397,6 +397,7 @@ def plan_query_node(state: GraphState) -> Dict:
     question = state["question"]
     original_q = state.get("original_question", question)
     text_only = state.get("text_only", False)
+    memory_context = state.get("memory_context", "无可用历史经验")
 
     print("--- 🧭 Agent 正在规划子问题与检索路径 ---")
     sys_prompt = planner_prompts.get("system_prompt", "你是一个检索规划助手。")
@@ -404,6 +405,7 @@ def plan_query_node(state: GraphState) -> Dict:
         question=question,
         original_q=original_q,
         text_only=text_only,
+        memory_context=memory_context,
     )
 
     try:

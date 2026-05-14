@@ -198,6 +198,7 @@ def tool_call_agent_node(state: GraphState) -> Dict:
     original_q = state.get("original_question", question)
     text_only = state.get("text_only", False)
     debug = state.get("debug", False)
+    memory_context = state.get("memory_context", "无可用历史经验")
     max_tool_calls = max(1, int(MAX_TOOL_CALLS or 4))
     plan = state.get("retrieval_plan") or _default_plan(question, text_only=text_only)
     plan = plan[:max_tool_calls]
@@ -233,6 +234,7 @@ def tool_call_agent_node(state: GraphState) -> Dict:
             step_index=step_index,
             total_steps=len(plan),
             prior_evidence=prior_evidence,
+            memory_context=memory_context,
         )
         messages = [{"role": "user", "content": user_prompt}]
         assistant_message = _get_llm_client().chat_with_tools(

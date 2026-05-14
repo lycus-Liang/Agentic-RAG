@@ -17,6 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.agent.workflow import build_agentic_rag
 from src.agent.retrieval_tools import get_searcher
+from src.agent.memory import apply_memory_feedback
 from src.utils.image_quality import filter_informative_images
 
 # ==========================================
@@ -28,6 +29,7 @@ st.markdown("支持**图文多模态检索**与**自主反思重写**的工业�
 
 with st.sidebar:
     show_retrieval_process = st.checkbox("显示检索过程", value=False)
+    session_id = st.text_input("Session ID", value="default_user")
 
 
 def render_tool_trace(tool_trace):
@@ -59,6 +61,26 @@ def render_tool_trace(tool_trace):
         notes = trace.get("strategy_notes", []) or []
         if notes:
             st.caption("strategy notes: " + ", ".join(notes))
+
+
+def render_memory_trace(memory_trace):
+    if not memory_trace:
+        st.caption("暂无 memory 记录。")
+        return
+    for item in memory_trace:
+        st.caption(str(item))
+
+
+def render_feedback_controls(memory_id, session_id, key_prefix):
+    if not memory_id:
+        return
+    cols = st.columns([1, 1, 6])
+    if cols[0].button("有帮助", key=f"{key_prefix}_up"):
+        ok = apply_memory_feedback(memory_id, session_id=session_id, score=1.0)
+        st.toast("反馈已记录" if ok else "反馈记录失败")
+    if cols[1].button("没帮助", key=f"{key_prefix}_down"):
+        ok = apply_memory_feedback(memory_id, session_id=session_id, score=-1.0)
+        st.toast("反馈已记录" if ok else "反馈记录失败")
 
 # ==========================================
 # 🤖 核心引擎初始化 (缓存机制，避免每次点击重新加载)
@@ -97,6 +119,11 @@ for msg in st.session_state.messages:
         if show_retrieval_process and msg.get("tool_trace"):
             with st.expander(f"检索过程 ({len(msg['tool_trace'])} 次)", expanded=False):
                 render_tool_trace(msg["tool_trace"])
+        if show_retrieval_process and msg.get("memory_trace"):
+            with st.expander("Agent Memory", expanded=False):
+                render_memory_trace(msg["memory_trace"])
+        if msg["role"] == "assistant" and msg.get("memory_id"):
+            render_feedback_controls(msg["memory_id"], msg.get("session_id", "default_user"), f"history_{id(msg)}")
 
 # ==========================================
 # 🚀 核心对话流
@@ -127,15 +154,28 @@ if prompt := st.chat_input("请输入您的问题"):
         inputs = {
             "question": prompt, 
             "ui_stream_callback": stream_updater,
-            "debug": show_retrieval_process
+            "debug": show_retrieval_process,
+            "session_id": session_id,
         }
         final_answer = ""
         source_images = []
         tool_trace = []
+        memory_trace = []
+        memory_id = ""
         
         try:
             for output in app.stream(inputs):
                 for key, value in output.items():
+                    if key == "retrieve_memory":
+                        memory_trace = value.get("memory_trace", [])
+                        if show_retrieval_process:
+                            status.write(f"🧠 动作: Agent Memory 检索完成。{', '.join(memory_trace)}")
+                            memories = value.get("retrieved_memories", [])
+                            for idx, memory in enumerate(memories, start=1):
+                                status.write(
+                                    f"  Memory {idx}: reward={memory.get('reward', 0):.2f} "
+                                    f"{str(memory.get('profile', ''))[:80]}"
+                                )
                     if key == "plan_query":
                         plan = value.get("retrieval_plan", [])
                         validation = value.get("plan_validation", {})
@@ -222,6 +262,14 @@ if prompt := st.chat_input("请输入您的问题"):
                             for crop in crops:
                                 if crop not in source_images and len(source_images) < 3:
                                     source_images.append(crop)
+                    elif key == "update_memory":
+                        memory_trace = value.get("memory_trace", memory_trace)
+                        memory_id = value.get("memory_record_id", "")
+                        if show_retrieval_process:
+                            status.write(
+                                f"🧠 动作: Agent Memory 写入完成 "
+                                f"`{value.get('memory_action', '')}` / `{memory_id}`"
+                            )
 
             status.update(label="✅ Agent 思考完毕", state="complete", expanded=False)
             if not final_answer.strip():
@@ -244,12 +292,19 @@ if prompt := st.chat_input("请输入您的问题"):
             if show_retrieval_process:
                 with st.expander(f"检索过程 ({len(tool_trace)} 次)", expanded=False):
                     render_tool_trace(tool_trace)
+                with st.expander("Agent Memory", expanded=False):
+                    render_memory_trace(memory_trace)
+
+            render_feedback_controls(memory_id, session_id, f"current_{memory_id or 'none'}")
                         
             st.session_state.messages.append({
                 "role": "assistant", 
                 "content": final_answer,
                 "images": source_images,
-                "tool_trace": tool_trace
+                "tool_trace": tool_trace,
+                "memory_trace": memory_trace,
+                "memory_id": memory_id,
+                "session_id": session_id,
             })
 
         except Exception as e:

@@ -242,10 +242,29 @@ def test_tool_call_agent_text_only_allows_only_text_tool():
     assert len(llm.calls) == 1
 
 
+def test_tool_call_agent_includes_memory_context_in_prompt():
+    llm = FakeLLM([
+        {"role": "assistant", "content": "", "tool_calls": [tool_call()]},
+    ])
+    saved = with_fakes(llm)
+    try:
+        tool_call_agent.tool_call_agent_node({
+            "question": "题目",
+            "text_only": False,
+            "memory_context": "历史经验：相似问题优先 exact",
+            "retrieval_plan": [two_step_plan()[0]],
+        })
+    finally:
+        restore_fakes(saved)
+
+    assert "历史经验：相似问题优先 exact" in llm.calls[0]["messages"][0]["content"]
+
+
 if __name__ == "__main__":
     test_tool_call_agent_executes_single_planned_step()
     test_tool_call_agent_executes_multi_step_plan()
     test_tool_call_agent_errors_if_first_response_has_no_tool_calls()
     test_tool_call_agent_rejects_malformed_tool_arguments()
     test_tool_call_agent_text_only_allows_only_text_tool()
+    test_tool_call_agent_includes_memory_context_in_prompt()
     print("test_tool_call_agent passed")

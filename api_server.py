@@ -15,6 +15,7 @@ print(f"🌍 当前 HF 镜像源: {os.environ.get('HF_ENDPOINT', '官方默认')
 # 1. 导入你现有的 RAG 核心组件
 from src.agent.retrieval_tools import get_searcher
 from src.agent.workflow import build_agentic_rag
+from src.agent.memory import apply_memory_feedback
 
 # 初始化 Agent 图状态机
 agent_app = build_agentic_rag()
@@ -66,6 +67,17 @@ class ChatResponse(BaseModel):
     answer: str
     sources: List[DocumentDTO]
     tool_trace: Optional[List[Dict[str, Any]]] = None
+    memory_id: Optional[str] = None
+    memory_trace: Optional[List[str]] = None
+
+class MemoryFeedbackRequest(BaseModel):
+    memory_id: str = Field(..., description="需要反馈的 memory 记录 ID")
+    session_id: str = Field("default_user", description="会话 ID")
+    score: float = Field(..., description="反馈分数，正数代表有帮助，负数代表无帮助")
+    comment: str = Field("", description="可选反馈说明")
+
+class MemoryFeedbackResponse(BaseModel):
+    ok: bool
 
 # ==========================================
 # 🔌 接口 1：纯检索服务 (只捞数据，不生成)
@@ -112,7 +124,8 @@ async def api_chat(request: ChatRequest):
         initial_state = {
             "question": request.query,
             "text_only": request.text_only,
-            "debug": request.debug
+            "debug": request.debug,
+            "session_id": request.session_id,
         }
         
         # 触发 Agent 工作流
@@ -137,10 +150,29 @@ async def api_chat(request: ChatRequest):
             ))
             
         tool_trace = final_state.get("tool_trace") if request.debug else None
-        return ChatResponse(answer=answer, sources=docs, tool_trace=tool_trace)
+        memory_trace = final_state.get("memory_trace") if request.debug else None
+        return ChatResponse(
+            answer=answer,
+            sources=docs,
+            tool_trace=tool_trace,
+            memory_id=final_state.get("memory_record_id"),
+            memory_trace=memory_trace,
+        )
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"问答生成失败: {str(e)}")
+
+@app.post("/v1/memory/feedback", response_model=MemoryFeedbackResponse, summary="提交 Agent Memory 反馈")
+async def api_memory_feedback(request: MemoryFeedbackRequest):
+    ok = apply_memory_feedback(
+        request.memory_id,
+        session_id=request.session_id,
+        score=request.score,
+        comment=request.comment,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="memory 记录不存在或记忆系统未启用")
+    return MemoryFeedbackResponse(ok=True)
 
 # 主函数入口
 if __name__ == "__main__":
